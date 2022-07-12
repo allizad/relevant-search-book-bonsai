@@ -20,6 +20,8 @@ tmdb_api_key = os.environ["TMDB_API_KEY"]
 tmdb_api = requests.Session()
 tmdb_api.params={'api_key': tmdb_api_key}
 
+ELASTICSEARCH_URL = os.environ["ELASTICSEARCH_URL"]
+
 # Optional, enable client-side caching for TMDB
 # Requires: https://httpcache.readthedocs.org/en/latest/
 #from httpcache import CachingHTTPAdapter
@@ -61,7 +63,7 @@ print len(movieIds)
 # Out[3]:
 
 #     2925
-# 
+#
 
 # In[4]:
 
@@ -75,18 +77,18 @@ for movieId in movieIds:
 # In[7]:
 
 # Destroy any existing index (equiv to SQL "drop table")
-resp = requests.delete("http://localhost:9200/tmdb")
+resp = requests.delete(f'{ELASTICSEARCH_URL}/tmdb')
 print resp.status_code
 
 # Create the index with explicit settings
-# We need to explicitely set number of shards to 1 to eliminate the impact of 
+# We need to explicitely set number of shards to 1 to eliminate the impact of
 # distributed IDF on our small collection
 # See also "Relavance is Broken!"
 # http://www.elastic.co/guide/en/elasticsearch/guide/current/relevance-is-broken.html
 settings = {
     "settings": {"number_of_shards": 1}
 }
-resp = requests.put("http://localhost:9200/tmdb", data=json.dumps(settings))
+resp = requests.put(f'{ELASTICSEARCH_URL}/tmdb', data=json.dumps(settings))
 print resp.status_code
 
 # Bulk index title & overview to the movie endpoint
@@ -96,7 +98,7 @@ for id, movie in movieDict.iteritems():
     addCmd = {"index": {"_index": "tmdb", "_type": "movie", "_id": movie["id"]}}
     esDoc  = {"title": movie['title'], 'overview': movie['overview'], 'tagline': movie['tagline']}
     bulkMovies += json.dumps(addCmd) + "\n" + json.dumps(esDoc) + "\n"
-requests.post("http://localhost:9200/_bulk", data=bulkMovies)
+requests.post(f'{ELASTICSEARCH_URL}/_bulk', data=bulkMovies)
 
 
 # Out[7]:
@@ -104,7 +106,7 @@ requests.post("http://localhost:9200/_bulk", data=bulkMovies)
 #     200
 #     200
 #     Indexing 2919 movies
-# 
+#
 
 #     <Response [200]>
 
@@ -115,7 +117,7 @@ requests.post("http://localhost:9200/_bulk", data=bulkMovies)
 usersSearch = 'basketball with cartoon aliens'
 search = {
     'query': {
-        'multi_match': { 
+        'multi_match': {
             'query': usersSearch,  #User's query
             'fields': ['title^10', 'overview'],
         }
@@ -124,7 +126,7 @@ search = {
     'explain': True
 }
 
-httpResp = requests.get('http://localhost:9200/tmdb/movie/_search', data=json.dumps(search))
+httpResp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/movie/_search', data=json.dumps(search))
 searchHits = json.loads(httpResp.text)['hits']
 print "Num\tRelevance Score\t\tMovie Title\t\tOverview"
 for idx, hit in enumerate(searchHits['hits']):
@@ -234,7 +236,7 @@ for idx, hit in enumerate(searchHits['hits']):
 #     98	0.0013652327		Spider-Man		122
 #     99	0.0013652327		The French Connection		102
 #     100	0.0013652327		Frida		427
-# 
+#
 
 ## 2.3.1 Query Validation API
 
@@ -242,13 +244,13 @@ for idx, hit in enumerate(searchHits['hits']):
 
 search = {
    'query': {
-        'multi_match': { 
+        'multi_match': {
             'query': usersSearch,  #User's query
             'fields': ['title^10', 'overview']
         }
     }
 }
-httpResp = requests.get('http://localhost:9200' + 
+httpResp = requests.get(f'{ELASTICSEARCH_URL}' +
 			    '/tmdb/movie/_validate/query?explain',
 			     data=json.dumps(search))
 print json.loads(httpResp.text)
@@ -257,7 +259,7 @@ print json.loads(httpResp.text)
 # Out[10]:
 
 #     {u'valid': True, u'explanations': [{u'index': u'tmdb', u'explanation': u'filtered((((title:basketball title:with title:cartoon title:aliens)^10.0) | (overview:basketball overview:with overview:cartoon overview:aliens)))->cache(_type:movie)', u'valid': True}], u'_shards': {u'successful': 1, u'failed': 0, u'total': 1}}
-# 
+#
 
 ## 2.3.3 Debugging Analysis
 
@@ -270,7 +272,7 @@ print json.loads(httpResp.text)
 # Explain of what's happening when we construct these terms
 
 #resp = requests.get(elasticSearchUrl + "/tmdb/_mapping/movie/field/title?format=yaml'
-resp = requests.get('http://localhost:9200/tmdb/_analyze?field=title&format=yaml', 
+resp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/_analyze?field=title&format=yaml',
                     data="Fire with Fire")
 print resp.text
 
@@ -289,8 +291,8 @@ print resp.text
 #       end_offset: 14
 #       type: "<ALPHANUM>"
 #       position: 3
-#     
-# 
+#
+#
 
 ## 2.3.5 -- Solving The Matching Problem
 
@@ -299,7 +301,7 @@ print resp.text
 from time import sleep
 
 # DELETE AND RECREATE THE INDEX WITH ENGLISH ANALYZERS
-requests.delete('http://localhost:9200/tmdb')
+requests.delete(f'{ELASTICSEARCH_URL}/tmdb')
 
 settings = {
     'settings': {
@@ -317,29 +319,29 @@ settings = {
                         'analyzer': 'english'
                     }
                 }
-                
+
             }
        }
-    
+
 }
 
-resp = requests.put('http://localhost:9200/tmdb/', data=json.dumps(settings))
+resp = requests.put(f'{ELASTICSEARCH_URL}/tmdb/', data=json.dumps(settings))
 print resp.text
 sleep(1)
 
 # Inspecting the mappings
-resp = requests.get('http://localhost:9200/tmdb/_mappings?format=yaml')
+resp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/_mappings?format=yaml')
 print resp.text
 
 # Reanalyze the string
-resp = requests.get('http://localhost:9200/tmdb/_analyze?field=title&format=yaml', 
+resp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/_analyze?field=title&format=yaml',
                     data="Fire with Fire")
 print resp.text
 
 
 # Reindex
-resp = requests.post('http://localhost:9200/_bulk', data=bulkMovies)
-resp = requests.get('http://localhost:9200/tmdb/_refresh')
+resp = requests.post(f'{ELASTICSEARCH_URL}/_bulk', data=bulkMovies)
+resp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/_refresh')
 print resp.text
 
 sleep(1)
@@ -347,7 +349,7 @@ sleep(1)
 # Search again
 search = {
     'query': {
-        'multi_match': { 
+        'multi_match': {
             'query': usersSearch,  #User's query
             'fields': ['title^10', 'overview'],
         }
@@ -355,7 +357,7 @@ search = {
     'size': '100',
     'explain': True
 }
-httpResp = requests.get('http://localhost:9200/tmdb/movie/_search', data=json.dumps(search))
+httpResp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/movie/_search', data=json.dumps(search))
 searchHits = json.loads(httpResp.text)['hits']
 
 print "Num\tRelevance Score\t\tMovie Title\t\tOverview"
@@ -377,7 +379,7 @@ for idx, hit in enumerate(searchHits['hits']):
 #             title:
 #               type: "string"
 #               analyzer: "english"
-#     
+#
 #     ---
 #     tokens:
 #     - token: "fire"
@@ -390,7 +392,7 @@ for idx, hit in enumerate(searchHits['hits']):
 #       end_offset: 14
 #       type: "<ALPHANUM>"
 #       position: 3
-#     
+#
 #     {"_shards":{"total":2,"successful":1,"failed":0}}
 #     Num	Relevance Score		Movie Title		Overview
 #     1	1.0671602		Alien		420
@@ -474,14 +476,14 @@ for idx, hit in enumerate(searchHits['hits']):
 #     79	0.0058246176		There Will Be Blood		633
 #     80	0.0049925293		Stalker		755
 #     81	0.0049925293		Wreck-It Ralph		658
-# 
+#
 
 ## 2.4.1	Decomposing Relevance Score With Lucene’s Explain
 
 # In[12]:
 
 search['explain'] = True
-httpResp = requests.get(elasticSearchUrl + '/tmdb/movie/_search', data=json.dumps(search))
+httpResp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/movie/_search', data=json.dumps(search))
 jsonResp = json.loads(httpResp.text)
 print json.dumps(jsonResp['hits']['hits'][0]['_explanation'], indent=True)
 print "Explain for %s" % jsonResp['hits']['hits'][0]['_source']['title']
@@ -499,59 +501,59 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 # Out[12]:
 
 #     {
-#      "description": "max of:", 
-#      "value": 1.0643067, 
+#      "description": "max of:",
+#      "value": 1.0643067,
 #      "details": [
 #       {
-#        "description": "product of:", 
-#        "value": 1.0643067, 
+#        "description": "product of:",
+#        "value": 1.0643067,
 #        "details": [
 #         {
-#          "description": "sum of:", 
-#          "value": 3.19292, 
+#          "description": "sum of:",
+#          "value": 3.19292,
 #          "details": [
 #           {
-#            "description": "weight(title:alien in 223) [PerFieldSimilarity], result of:", 
-#            "value": 3.19292, 
+#            "description": "weight(title:alien in 223) [PerFieldSimilarity], result of:",
+#            "value": 3.19292,
 #            "details": [
 #             {
-#              "description": "score(doc=223,freq=1.0 = termFreq=1.0\n), product of:", 
-#              "value": 3.19292, 
+#              "description": "score(doc=223,freq=1.0 = termFreq=1.0\n), product of:",
+#              "value": 3.19292,
 #              "details": [
 #               {
-#                "description": "queryWeight, product of:", 
-#                "value": 0.4793294, 
+#                "description": "queryWeight, product of:",
+#                "value": 0.4793294,
 #                "details": [
 #                 {
-#                  "description": "idf(docFreq=9, maxDocs=2875)", 
+#                  "description": "idf(docFreq=9, maxDocs=2875)",
 #                  "value": 6.661223
-#                 }, 
+#                 },
 #                 {
-#                  "description": "queryNorm", 
+#                  "description": "queryNorm",
 #                  "value": 0.07195817
 #                 }
 #                ]
-#               }, 
+#               },
 #               {
-#                "description": "fieldWeight in 223, product of:", 
-#                "value": 6.661223, 
+#                "description": "fieldWeight in 223, product of:",
+#                "value": 6.661223,
 #                "details": [
 #                 {
-#                  "description": "tf(freq=1.0), with freq of:", 
-#                  "value": 1.0, 
+#                  "description": "tf(freq=1.0), with freq of:",
+#                  "value": 1.0,
 #                  "details": [
 #                   {
-#                    "description": "termFreq=1.0", 
+#                    "description": "termFreq=1.0",
 #                    "value": 1.0
 #                   }
 #                  ]
-#                 }, 
+#                 },
 #                 {
-#                  "description": "idf(docFreq=9, maxDocs=2875)", 
+#                  "description": "idf(docFreq=9, maxDocs=2875)",
 #                  "value": 6.661223
-#                 }, 
+#                 },
 #                 {
-#                  "description": "fieldNorm(doc=223)", 
+#                  "description": "fieldNorm(doc=223)",
 #                  "value": 1.0
 #                 }
 #                ]
@@ -561,63 +563,63 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #            ]
 #           }
 #          ]
-#         }, 
+#         },
 #         {
-#          "description": "coord(1/3)", 
+#          "description": "coord(1/3)",
 #          "value": 0.33333334
 #         }
 #        ]
-#       }, 
+#       },
 #       {
-#        "description": "product of:", 
-#        "value": 0.00662633, 
+#        "description": "product of:",
+#        "value": 0.00662633,
 #        "details": [
 #         {
-#          "description": "sum of:", 
-#          "value": 0.01987899, 
+#          "description": "sum of:",
+#          "value": 0.01987899,
 #          "details": [
 #           {
-#            "description": "weight(overview:alien in 223) [PerFieldSimilarity], result of:", 
-#            "value": 0.01987899, 
+#            "description": "weight(overview:alien in 223) [PerFieldSimilarity], result of:",
+#            "value": 0.01987899,
 #            "details": [
 #             {
-#              "description": "score(doc=223,freq=1.0 = termFreq=1.0\n), product of:", 
-#              "value": 0.01987899, 
+#              "description": "score(doc=223,freq=1.0 = termFreq=1.0\n), product of:",
+#              "value": 0.01987899,
 #              "details": [
 #               {
-#                "description": "queryWeight, product of:", 
-#                "value": 0.03382846, 
+#                "description": "queryWeight, product of:",
+#                "value": 0.03382846,
 #                "details": [
 #                 {
-#                  "description": "idf(docFreq=70, maxDocs=2875)", 
+#                  "description": "idf(docFreq=70, maxDocs=2875)",
 #                  "value": 4.701128
-#                 }, 
+#                 },
 #                 {
-#                  "description": "queryNorm", 
+#                  "description": "queryNorm",
 #                  "value": 0.0071958173
 #                 }
 #                ]
-#               }, 
+#               },
 #               {
-#                "description": "fieldWeight in 223, product of:", 
-#                "value": 0.587641, 
+#                "description": "fieldWeight in 223, product of:",
+#                "value": 0.587641,
 #                "details": [
 #                 {
-#                  "description": "tf(freq=1.0), with freq of:", 
-#                  "value": 1.0, 
+#                  "description": "tf(freq=1.0), with freq of:",
+#                  "value": 1.0,
 #                  "details": [
 #                   {
-#                    "description": "termFreq=1.0", 
+#                    "description": "termFreq=1.0",
 #                    "value": 1.0
 #                   }
 #                  ]
-#                 }, 
+#                 },
 #                 {
-#                  "description": "idf(docFreq=70, maxDocs=2875)", 
+#                  "description": "idf(docFreq=70, maxDocs=2875)",
 #                  "value": 4.701128
-#                 }, 
+#                 },
 #                 {
-#                  "description": "fieldNorm(doc=223)", 
+#                  "description": "fieldNorm(doc=223)",
 #                  "value": 0.125
 #                 }
 #                ]
@@ -627,9 +629,9 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #            ]
 #           }
 #          ]
-#         }, 
+#         },
 #         {
-#          "description": "coord(1/3)", 
+#          "description": "coord(1/3)",
 #          "value": 0.33333334
 #         }
 #        ]
@@ -666,7 +668,7 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #                 4.701128, idf(docFreq=70, maxDocs=2875)
 #                 0.125, fieldNorm(doc=223)
 #         0.33333334, coord(1/3)
-#     
+#
 #     Explain for Aliens
 #     1.0643067, max of:
 #       1.0643067, product of:
@@ -697,7 +699,7 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #                 4.701128, idf(docFreq=70, maxDocs=2875)
 #                 0.15625, fieldNorm(doc=435)
 #         0.33333334, coord(1/3)
-#     
+#
 #     Explain for Alien³
 #     1.0643067, max of:
 #       1.0643067, product of:
@@ -728,7 +730,7 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #                 4.701128, idf(docFreq=70, maxDocs=2875)
 #                 0.125, fieldNorm(doc=2855)
 #         0.33333334, coord(1/3)
-#     
+#
 #     Explain for The Basketball Diaries
 #     1.0254613, max of:
 #       1.0254613, product of:
@@ -745,7 +747,7 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #                 8.27066, idf(docFreq=1, maxDocs=2875)
 #                 0.625, fieldNorm(doc=1278)
 #         0.33333334, coord(1/3)
-#     
+#
 #     Explain for Space Jam
 #     0.08334568, max of:
 #       0.08334568, product of:
@@ -773,8 +775,8 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 #                 4.701128, idf(docFreq=70, maxDocs=2875)
 #                 0.25, fieldNorm(doc=1289)
 #         0.6666667, coord(2/3)
-#     
-# 
+#
+#
 
 ## 2.4.4	Fixing Space Jam vs Alien Ranking
 
@@ -783,7 +785,7 @@ print simplerExplain(jsonResp['hits']['hits'][10]['_explanation'])
 # Search with saner boosts
 search = {
     'query': {
-        'multi_match': { 
+        'multi_match': {
             'query': usersSearch,  #User's query
             'fields': ['title^0.1', 'overview'],
         }
@@ -791,7 +793,7 @@ search = {
     'size': '100',
     'explain': True
 }
-httpResp = requests.get('http://localhost:9200/tmdb/movie/_search', data=json.dumps(search))
+httpResp = requests.get(f'{ELASTICSEARCH_URL}/tmdb/movie/_search', data=json.dumps(search))
 searchHits = json.loads(httpResp.text)['hits']
 
 print "Num\tRelevance Score\t\tMovie Title\t\tOverview"
@@ -883,4 +885,4 @@ for idx, hit in enumerate(searchHits['hits']):
 #     79	0.064674586		Monsters vs Aliens		333
 #     80	0.06051383		Stalker		755
 #     81	0.06051383		Wreck-It Ralph		658
-# 
+#
